@@ -1,0 +1,32 @@
+[
+  {
+    "id": "a53701e3-a60a-47cb-8813-bbf5c7ee004e",
+    "name": "Carlos",
+    "message": "En sintonía, escuchando joropo.",
+    "likes": 1,
+    "reports": 0,
+    "is_hidden": false,
+    "client_id": "c_mriikblm_0wyh6vk1nb",
+    "created_at": "2026-07-13T00:58:26.091118+00:00"
+  },
+  {
+    "id": "d201a7c4-d97c-4ad1-869c-a6f5e9dd3fa5",
+    "name": "Cruz perdomo",
+    "message": "Desde galiperoviejo amazonas puerto Ayacucho saludos copleros y copleras del Yano",
+    "likes": 1,
+    "reports": 0,
+    "is_hidden": false,
+    "client_id": "c_ms8aj349_dolt1d4mp4",
+    "created_at": "2026-07-31T01:57:41.951527+00:00"
+  },
+  {
+    "id": "169e0ee4-d47c-4e7d-ad47-7c300d2518b4",
+    "name": "cirilo perez",
+    "message": "Esto si es bueno puro llano los felicito y les doy gracias por tan buena intención enarteser nuestro folklore Dió los Bendiga y ayude  desde Gunarito Edo portuguesa el Ruiseñor de los Bancos",
+    "likes": 1,
+    "reports": 0,
+    "is_hidden": false,
+    "client_id": "c_mufytz41_hi0qjkrzvv",
+    "created_at": "2026-09-24T20:20:02.4833+00:00"
+  }
+]

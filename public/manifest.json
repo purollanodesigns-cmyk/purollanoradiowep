@@ -1,0 +1,36 @@
+{
+  "name": "Puro Llano Radio",
+  "short_name": "Puro Llano",
+  "description": "Emisora online del folklore llanero, transmitiendo en HD arpa, cuatro y maracas 24/7.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FDFBF7",
+  "theme_color": "#0F0E0E",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/purollano-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/purollano-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/purollano-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/purollano-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

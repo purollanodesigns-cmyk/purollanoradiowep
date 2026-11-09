@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useState } from "react";
+import { Users, Loader2, ShieldCheck, ShieldOff } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+interface AdminUser {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  created_at: string;
+  is_admin: boolean;
+}
+
+/** Panel: usuarios registrados, roles y permisos. */
+export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase.rpc as any)("admin_list_users");
+    if (error) setFeedback("No se pudo cargar la lista de usuarios.");
+    else setUsers((data ?? []) as AdminUser[]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const setRole = async (u: AdminUser, grant: boolean) => {
+    if (!grant && !confirm(`¿Quitar el rol de administrador a ${u.email}?`)) return;
+    setBusyId(u.id);
+    setFeedback(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.rpc as any)("admin_set_role", {
+      _user_id: u.id,
+      _role: "admin",
+      _grant: grant,
+    });
+    if (error) {
+      setFeedback(
+        error.message?.includes("last_admin")
+          ? "No puedes quitar el último administrador."
+          : "No se pudo cambiar el rol.",
+      );
+    } else {
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_admin: grant } : x)));
+      setFeedback(grant ? "Rol de administrador otorgado." : "Rol de administrador retirado.");
+    }
+    setBusyId(null);
+  };
+
+  return (
+    <section className="mt-6 rounded-2xl border border-[var(--sabana)]/15 bg-white p-5">
+      <div className="flex items-center gap-2">
+        <Users className="h-5 w-5 text-[var(--terracota)]" />
+        <h2 className="font-display text-lg text-[var(--sabana)]">Usuarios, roles y permisos</h2>
+        <span className="ml-auto text-xs text-[var(--muted-foreground)]">{users.length} cuentas</span>
+      </div>
+
+      <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+        Solo las cuentas con rol <strong>Administrador</strong> pueden moderar comentarios, publicar anuncios y enviar
+        notificaciones.
+      </p>
+
+      {loading ? (
+        <div className="p-8 text-center">
+          <Loader2 className="mx-auto h-5 w-5 animate-spin text-[var(--terracota)]" />
+        </div>
+      ) : (
+        <ul className="mt-4 divide-y divide-[var(--sabana)]/10">
+          {users.map((u) => (
+            <li key={u.id} className="flex flex-wrap items-center gap-3 py-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm text-[var(--foreground)]">{u.display_name || u.email}</div>
+                <div className="truncate text-[11px] text-[var(--muted-foreground)]">
+                  {u.email} · {new Date(u.created_at).toLocaleDateString("es-VE")}
+                </div>
+              </div>
+              <span
+                className={`rounded-full px-2.5 py-1 text-[10px] uppercase tracking-wider ${
+                  u.is_admin ? "bg-[var(--oro)]/30 text-[var(--sabana)]" : "bg-[var(--sabana)]/10 text-[var(--muted-foreground)]"
+                }`}
+              >
+                {u.is_admin ? "Administrador" : "Usuario"}
+              </span>
+              <button
+                onClick={() => setRole(u, !u.is_admin)}
+                disabled={busyId === u.id || u.id === currentUserId}
+                title={u.id === currentUserId ? "No puedes cambiar tu propio rol" : undefined}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sabana)]/20 px-3 py-1.5 text-xs transition hover:bg-[var(--oro)]/20 disabled:opacity-40"
+              >
+                {busyId === u.id ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : u.is_admin ? (
+                  <ShieldOff className="h-3.5 w-3.5" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                {u.is_admin ? "Quitar admin" : "Hacer admin"}
+              </button>
+            </li>
+          ))}
+          {users.length === 0 && (
+            <li className="py-6 text-center text-sm text-[var(--muted-foreground)]">Sin cuentas registradas.</li>
+          )}
+        </ul>
+      )}
+
+      {feedback && <p className="mt-3 text-xs text-[var(--terracota)]">{feedback}</p>}
+    </section>
+  );
+}

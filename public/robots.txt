@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /moderacion
+Disallow: /admin
+Disallow: /auth
+
+Sitemap: https://purollanoradio.lovable.app/sitemap.xml
