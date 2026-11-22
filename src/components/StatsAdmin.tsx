@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BarChart3, Loader2, Globe2, Clock, RefreshCw } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ref, get } from "firebase/database";
+import { db } from "@/lib/firebase";
 
 interface HourPoint {
   hour: string;
@@ -30,6 +31,44 @@ const flag = (cc: string) =>
     ? "🌐"
     : String.fromCodePoint(...[...cc.toUpperCase()].map((c) => 127397 + c.charCodeAt(0)));
 
+/** Calcula estadísticas de visitas directamente desde Firebase RTDB. */
+async function loadStatsFromRTDB(hours: number): Promise<Stats> {
+  const [totalSnap, byCountrySnap] = await Promise.all([
+    get(ref(db, "site_visits/total")),
+    get(ref(db, "site_visits/by_country")),
+  ]);
+
+  const total = (totalSnap.val() as number) ?? 0;
+
+  // Construir conteo por país
+  const countryRaw = (byCountrySnap.val() as Record<string, number> | null) ?? {};
+  const by_country: CountryPoint[] = Object.entries(countryRaw)
+    .map(([country, count]) => ({ country: country.toUpperCase(), count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 15);
+
+  const tracked = by_country.reduce((s, c) => s + c.count, 0);
+
+  // Visitas por hora: RTDB no guarda timestamps granulares, así que
+  // construimos datos de placeholder con el total dividido en buckets vacíos.
+  // Si en el futuro se migra a un esquema con timestamps, aquí se leerían.
+  const now = new Date();
+  const by_hour: HourPoint[] = Array.from({ length: hours }, (_, i) => {
+    const d = new Date(now.getTime() - (hours - 1 - i) * 3600_000);
+    d.setMinutes(0, 0, 0);
+    return { hour: d.toISOString(), count: 0 };
+  });
+
+  return {
+    total,
+    tracked,
+    last_24h: 0,
+    last_7d: 0,
+    by_hour,
+    by_country,
+  };
+}
+
 /** Panel: estadísticas de visitas (totales, por hora y por país). */
 export function StatsAdmin() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -40,10 +79,12 @@ export function StatsAdmin() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error: err } = await (supabase.rpc as any)("admin_visit_stats", { _hours: hours });
-    if (err) setError("No se pudieron cargar las estadísticas.");
-    else setStats(data as Stats);
+    try {
+      const data = await loadStatsFromRTDB(hours);
+      setStats(data);
+    } catch {
+      setError("No se pudieron cargar las estadísticas.");
+    }
     setLoading(false);
   }, [hours]);
 
@@ -51,7 +92,6 @@ export function StatsAdmin() {
     void load();
   }, [load]);
 
-  const maxHour = Math.max(1, ...(stats?.by_hour ?? []).map((h) => h.count));
   const maxCountry = Math.max(1, ...(stats?.by_country ?? []).map((c) => c.count));
 
   return (
@@ -93,9 +133,7 @@ export function StatsAdmin() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
             {[
               { label: "Visitas totales", value: stats.total },
-              { label: "Registradas", value: stats.tracked },
-              { label: "Últimas 24 h", value: stats.last_24h },
-              { label: "Últimos 7 días", value: stats.last_7d },
+              { label: "Por país registradas", value: stats.tracked },
             ].map((s) => (
               <div key={s.label} className="rounded-2xl border border-[var(--sabana)]/15 bg-white p-4">
                 <div className="font-display text-[10px] uppercase tracking-[0.2em] text-[var(--muted-foreground)]">
@@ -106,33 +144,6 @@ export function StatsAdmin() {
                 </div>
               </div>
             ))}
-          </div>
-
-          <div className="rounded-2xl border border-[var(--sabana)]/15 bg-white p-5">
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4 text-[var(--terracota)]" />
-              <h3 className="font-display text-sm uppercase tracking-widest text-[var(--sabana)]">Visitas por hora</h3>
-            </div>
-            <div className="mt-5 flex h-40 items-end gap-[3px] overflow-x-auto">
-              {stats.by_hour.map((h) => {
-                const d = new Date(h.hour);
-                return (
-                  <div key={h.hour} className="group flex min-w-[10px] flex-1 flex-col items-center justify-end gap-1">
-                    <span className="text-[9px] tabular-nums text-[var(--muted-foreground)] opacity-0 transition group-hover:opacity-100">
-                      {h.count}
-                    </span>
-                    <div
-                      title={`${d.toLocaleString("es-VE")} · ${h.count} visitas`}
-                      style={{ height: `${Math.max(2, (h.count / maxHour) * 100)}%` }}
-                      className="w-full rounded-t bg-[var(--terracota)]/80 transition group-hover:bg-[var(--terracota)]"
-                    />
-                    <span className="text-[8px] tabular-nums text-[var(--muted-foreground)]">
-                      {d.getHours().toString().padStart(2, "0")}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
           </div>
 
           <div className="rounded-2xl border border-[var(--sabana)]/15 bg-white p-5">

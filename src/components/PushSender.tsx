@@ -1,30 +1,44 @@
 import { useEffect, useState } from "react";
 import { Bell, Send, Loader2 } from "lucide-react";
-import { useServerFn } from "@tanstack/react-start";
+import { getAuth } from "firebase/auth";
+import { app } from "@/lib/firebase";
 import { sendAnnouncement, countSubscribers } from "@/lib/push.functions";
 
 /**
  * Panel de moderación: enviar una notificación push a todos los suscriptores.
  */
 export function PushSender() {
-  const send = useServerFn(sendAnnouncement);
-  const count = useServerFn(countSubscribers);
-
   const [title, setTitle] = useState("Puro Llano Radio");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [subs, setSubs] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  /** Obtiene el Bearer token del usuario actual de Firebase Auth. */
+  async function getIdToken(): Promise<string> {
+    const auth = getAuth(app);
+    const user = auth.currentUser;
+    if (!user) throw new Error("No autenticado");
+    return user.getIdToken();
+  }
+
   useEffect(() => {
     let cancelled = false;
-    count()
-      .then((r) => !cancelled && setSubs(r.count))
-      .catch(() => !cancelled && setSubs(null));
+    (async () => {
+      try {
+        const token = await getIdToken();
+        const result = await countSubscribers({
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!cancelled) setSubs(result.count);
+      } catch {
+        if (!cancelled) setSubs(null);
+      }
+    })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const submit = async (e: React.FormEvent) => {
@@ -33,7 +47,11 @@ export function PushSender() {
     setBusy(true);
     setFeedback(null);
     try {
-      const res = await send({ data: { title: title.trim(), body: body.trim(), path: "/" } });
+      const token = await getIdToken();
+      const res = await sendAnnouncement({
+        headers: { Authorization: `Bearer ${token}` },
+        data: { title: title.trim(), body: body.trim(), path: "/" },
+      });
       setFeedback(`Enviadas: ${res.sent} · Fallidas: ${res.failed}`);
       setBody("");
     } catch (err) {

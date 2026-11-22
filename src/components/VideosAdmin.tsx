@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Youtube, Loader2, Trash2, Eye, EyeOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ref, get, set, remove, push as rtdbPush } from "firebase/database";
+import { db } from "@/lib/firebase";
 
 interface AdminVideo {
   id: string;
@@ -42,9 +43,18 @@ export function VideosAdmin() {
   const previewId = parseYoutubeId(url);
 
   const load = async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)("admin_list_videos");
-    if (!error) setItems((data ?? []) as AdminVideo[]);
+    const snap = await get(ref(db, "recommended_videos"));
+    if (!snap.exists()) {
+      setItems([]);
+      return;
+    }
+    const list: AdminVideo[] = [];
+    snap.forEach((child) => {
+      const d = child.val() as Omit<AdminVideo, "id">;
+      list.push({ id: child.key!, ...d });
+    });
+    list.sort((a, b) => a.sort_order - b.sort_order);
+    setItems(list);
   };
 
   useEffect(() => {
@@ -66,14 +76,15 @@ export function VideosAdmin() {
     setBusy(true);
     setFeedback(null);
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.rpc as any)("admin_create_video", {
-        _youtube_id: ytId,
-        _title: title.trim(),
-        _description: description.trim() || null,
-        _sort_order: Number(order) || 0,
+      const newRef = rtdbPush(ref(db, "recommended_videos"));
+      await set(newRef, {
+        youtube_id: ytId,
+        title: title.trim(),
+        description: description.trim() || null,
+        sort_order: Number(order) || 0,
+        is_published: true,
+        created_at: new Date().toISOString(),
       });
-      if (error) throw new Error(error.message);
       setFeedback("Video recomendado publicado");
       setUrl("");
       setTitle("");
@@ -88,15 +99,13 @@ export function VideosAdmin() {
   };
 
   const toggle = async (v: AdminVideo) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.rpc as any)("admin_toggle_video", { _id: v.id, _published: !v.is_published });
+    await set(ref(db, `recommended_videos/${v.id}/is_published`), !v.is_published);
     await load();
   };
 
-  const remove = async (v: AdminVideo) => {
+  const removeItem = async (v: AdminVideo) => {
     if (!confirm("¿Borrar este video recomendado?")) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.rpc as any)("admin_delete_video", { _id: v.id });
+    await remove(ref(db, `recommended_videos/${v.id}`));
     await load();
   };
 
@@ -199,7 +208,7 @@ export function VideosAdmin() {
                 {v.is_published ? "Ocultar" : "Mostrar"}
               </button>
               <button
-                onClick={() => remove(v)}
+                onClick={() => removeItem(v)}
                 className="inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700"
               >
                 <Trash2 className="h-3.5 w-3.5" /> Borrar

@@ -2,7 +2,8 @@
  * Notificaciones push (Firebase Cloud Messaging) para Puro Llano Radio.
  * Solo se ejecuta en el navegador, tras un gesto del usuario.
  */
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { ref, set } from "firebase/database";
 import { addNotification } from "@/lib/notifications-store";
 
 const appId = import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_APP_ID as string | undefined;
@@ -79,12 +80,15 @@ export async function enablePush(): Promise<PushResult> {
     const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration });
     if (!token) return { status: "denied" };
 
-    const { error } = await supabase.rpc("register_push_token", {
-      _token: token,
-      _platform: "web",
-      _lang: navigator.language ?? null,
+    // Registrar el token en Firebase Realtime Database
+    const tokenKey = token.replace(/[.#$[\]]/g, "_");
+    await set(ref(db, `push_tokens/${tokenKey}`), {
+      token,
+      is_active: true,
+      platform: "web",
+      lang: navigator.language ?? null,
+      created_at: Date.now(),
     });
-    if (error) throw error;
 
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
     setPushOptOut(false);
@@ -119,7 +123,11 @@ export async function disablePush(): Promise<boolean> {
   const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   try {
-    if (token) await supabase.rpc("unregister_push_token", { _token: token });
+    if (token) {
+      // Marcar token como inactivo en Firebase RTDB
+      const tokenKey = token.replace(/[.#$[\]]/g, "_");
+      await set(ref(db, `push_tokens/${tokenKey}/is_active`), false);
+    }
     const { isSupported, getMessaging, deleteToken } = await import("firebase/messaging");
     if (await isSupported()) {
       const { getApps, getApp, initializeApp } = await import("firebase/app");

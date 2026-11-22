@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Megaphone, Loader2, Trash2, Eye, EyeOff, ImageIcon } from "lucide-react";
-import { useServerFn } from "@tanstack/react-start";
-import { supabase } from "@/integrations/supabase/client";
+import { getAuth } from "firebase/auth";
+import { ref, get, set, remove, push as rtdbPush } from "firebase/database";
+import { app, db } from "@/lib/firebase";
 import { sendAnnouncement } from "@/lib/push.functions";
 
 interface AdminAnnouncement {
@@ -14,10 +15,16 @@ interface AdminAnnouncement {
   created_at: string;
 }
 
+/** Obtiene el Bearer token del usuario actual de Firebase Auth. */
+async function getIdToken(): Promise<string> {
+  const auth = getAuth(app);
+  const user = auth.currentUser;
+  if (!user) throw new Error("No autenticado");
+  return user.getIdToken();
+}
+
 /** Panel de moderación: crear y gestionar anuncios (título, texto e imagen). */
 export function AnnouncementsAdmin() {
-  const push = useServerFn(sendAnnouncement);
-
   const [items, setItems] = useState<AdminAnnouncement[]>([]);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
@@ -27,9 +34,19 @@ export function AnnouncementsAdmin() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const load = async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)("admin_list_announcements");
-    if (!error) setItems((data ?? []) as AdminAnnouncement[]);
+    const snap = await get(ref(db, "announcements"));
+    if (!snap.exists()) {
+      setItems([]);
+      return;
+    }
+    const list: AdminAnnouncement[] = [];
+    snap.forEach((child) => {
+      const d = child.val() as Omit<AdminAnnouncement, "id">;
+      list.push({ id: child.key!, ...d });
+    });
+    // Ordenar por created_at descendente
+    list.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    setItems(list);
   };
 
   useEffect(() => {
@@ -43,19 +60,23 @@ export function AnnouncementsAdmin() {
     setBusy(true);
     setFeedback(null);
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.rpc as any)("admin_create_announcement", {
-        _title: title.trim(),
-        _body: body.trim(),
-        _image_url: image.trim() || null,
-        _path: "/",
+      // Crear el anuncio en RTDB
+      const newRef = rtdbPush(ref(db, "announcements"));
+      await set(newRef, {
+        title: title.trim(),
+        body: body.trim(),
+        image_url: image.trim() || null,
+        path: "/",
+        is_published: true,
+        created_at: new Date().toISOString(),
       });
-      if (error) throw new Error(error.message);
 
       let extra = "";
       if (notify) {
         try {
-          const res = await push({
+          const token = await getIdToken();
+          const res = await sendAnnouncement({
+            headers: { Authorization: `Bearer ${token}` },
             data: { title: title.trim(), body: body.trim().slice(0, 300), path: "/" },
           });
           extra = ` · Push enviadas: ${res.sent}, fallidas: ${res.failed}`;
@@ -77,18 +98,13 @@ export function AnnouncementsAdmin() {
   };
 
   const toggle = async (a: AdminAnnouncement) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.rpc as any)("admin_toggle_announcement", {
-      _id: a.id,
-      _published: !a.is_published,
-    });
+    await set(ref(db, `announcements/${a.id}/is_published`), !a.is_published);
     await load();
   };
 
-  const remove = async (a: AdminAnnouncement) => {
+  const removeItem = async (a: AdminAnnouncement) => {
     if (!confirm("¿Borrar este anuncio?")) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.rpc as any)("admin_delete_announcement", { _id: a.id });
+    await remove(ref(db, `announcements/${a.id}`));
     setItems((prev) => prev.filter((x) => x.id !== a.id));
   };
 
@@ -177,7 +193,7 @@ export function AnnouncementsAdmin() {
                 {a.is_published ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <button
-                onClick={() => remove(a)}
+                onClick={() => removeItem(a)}
                 aria-label="Borrar anuncio"
                 className="rounded-full p-1.5 text-[var(--terracota)] transition hover:bg-[var(--terracota)]/10"
               >

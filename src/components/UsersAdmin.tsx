@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Users, Loader2, ShieldCheck, ShieldOff } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { ref, get, set } from "firebase/database";
+import { db } from "@/lib/firebase";
 
 interface AdminUser {
   id: string;
@@ -19,10 +20,39 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase.rpc as any)("admin_list_users");
-    if (error) setFeedback("No se pudo cargar la lista de usuarios.");
-    else setUsers((data ?? []) as AdminUser[]);
+    try {
+      // Leer user_roles desde RTDB
+      const rolesSnap = await get(ref(db, "user_roles"));
+      const rolesData = (rolesSnap.val() as Record<string, string> | null) ?? {};
+
+      // Leer perfiles desde RTDB
+      const profilesSnap = await get(ref(db, "profiles"));
+      const profilesData = (profilesSnap.val() as Record<string, {
+        email?: string;
+        display_name?: string;
+        created_at?: string;
+      }> | null) ?? {};
+
+      // Combinar: todos los UIDs que aparecen en roles o perfiles
+      const allUids = new Set([...Object.keys(rolesData), ...Object.keys(profilesData)]);
+
+      const list: AdminUser[] = [];
+      for (const uid of allUids) {
+        const profile = profilesData[uid] ?? {};
+        list.push({
+          id: uid,
+          email: profile.email ?? null,
+          display_name: profile.display_name ?? null,
+          created_at: profile.created_at ?? new Date().toISOString(),
+          is_admin: rolesData[uid] === "admin",
+        });
+      }
+
+      list.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      setUsers(list);
+    } catch {
+      setFeedback("No se pudo cargar la lista de usuarios.");
+    }
     setLoading(false);
   }, []);
 
@@ -32,23 +62,28 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
 
   const setRole = async (u: AdminUser, grant: boolean) => {
     if (!grant && !confirm(`¿Quitar el rol de administrador a ${u.email}?`)) return;
+
+    // Verificar que no sea el último admin
+    if (!grant) {
+      const adminCount = users.filter((x) => x.is_admin).length;
+      if (adminCount <= 1) {
+        setFeedback("No puedes quitar el último administrador.");
+        return;
+      }
+    }
+
     setBusyId(u.id);
     setFeedback(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.rpc as any)("admin_set_role", {
-      _user_id: u.id,
-      _role: "admin",
-      _grant: grant,
-    });
-    if (error) {
-      setFeedback(
-        error.message?.includes("last_admin")
-          ? "No puedes quitar el último administrador."
-          : "No se pudo cambiar el rol.",
-      );
-    } else {
+    try {
+      if (grant) {
+        await set(ref(db, `user_roles/${u.id}`), "admin");
+      } else {
+        await set(ref(db, `user_roles/${u.id}`), "user");
+      }
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_admin: grant } : x)));
       setFeedback(grant ? "Rol de administrador otorgado." : "Rol de administrador retirado.");
+    } catch {
+      setFeedback("No se pudo cambiar el rol.");
     }
     setBusyId(null);
   };

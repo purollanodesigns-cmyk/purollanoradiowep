@@ -1,12 +1,78 @@
 import { createServerFn } from "@tanstack/react-start";
+import { createMiddleware } from "@tanstack/react-start";
+import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { getDatabase, ref, get, query, orderByChild, equalTo } from "firebase/database";
+import { getApp, getApps, initializeApp } from "firebase/app";
 
-/** Verifica que el usuario autenticado tenga rol de administrador. */
-async function assertAdmin(context: { supabase: { rpc: (fn: string) => Promise<{ data: unknown }> } }) {
-  const { data } = await context.supabase.rpc("is_admin");
-  if (!data) throw new Error("unauthorized");
+// Configuración Firebase embebida para uso en el servidor
+const firebaseConfig = {
+  apiKey: process.env["VITE_FIREBASE_API_KEY"] || "AIzaSyC-8UJUQcQX-1meKwlSpR-gozptwKwumIQ",
+  authDomain:
+    process.env["VITE_FIREBASE_AUTH_DOMAIN"] || "puro-llano-radio.firebaseapp.com",
+  databaseURL:
+    process.env["VITE_FIREBASE_DATABASE_URL"] ||
+    "https://puro-llano-radio-default-rtdb.firebaseio.com",
+  projectId: process.env["VITE_FIREBASE_PROJECT_ID"] || "puro-llano-radio",
+  storageBucket:
+    process.env["VITE_FIREBASE_STORAGE_BUCKET"] || "puro-llano-radio.firebasestorage.app",
+  messagingSenderId: process.env["VITE_FIREBASE_MESSAGING_SENDER_ID"] || "526331475757",
+  appId:
+    process.env["VITE_FIREBASE_APP_ID"] || "1:526331475757:web:8bea3b708143637a2bc5a4",
+};
+
+function getServerDb() {
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  return getDatabase(app);
 }
+
+/**
+ * Middleware que verifica que el request incluya un Firebase ID token válido
+ * en el encabezado Authorization y que el usuario tenga rol de administrador en RTDB.
+ */
+const requireFirebaseAdmin = createMiddleware({ type: "function" }).server(
+  async ({ next }) => {
+    const request = getRequest();
+    if (!request?.headers) throw new Error("No autorizado: sin cabeceras");
+
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      throw new Error("No autorizado: se requiere Bearer token");
+    }
+
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    if (!idToken) throw new Error("No autorizado: token vacío");
+
+    // Verificar el token con la REST API de Firebase Auth
+    const apiKey =
+      process.env["VITE_FIREBASE_API_KEY"] || "AIzaSyC-8UJUQcQX-1meKwlSpR-gozptwKwumIQ";
+    const verifyRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      },
+    );
+
+    if (!verifyRes.ok) throw new Error("No autorizado: token inválido");
+
+    const verifyData = (await verifyRes.json()) as {
+      users?: Array<{ localId: string }>;
+    };
+    const uid = verifyData.users?.[0]?.localId;
+    if (!uid) throw new Error("No autorizado: sin UID en el token");
+
+    // Verificar que el usuario sea administrador en RTDB
+    const db = getServerDb();
+    const roleSnap = await get(ref(db, `user_roles/${uid}`));
+    if (roleSnap.val() !== "admin") {
+      throw new Error("No autorizado: sin permisos de administrador");
+    }
+
+    return next({ context: { uid } });
+  },
+);
 
 const sendSchema = z.object({
   title: z.string().min(2).max(80),
@@ -16,12 +82,9 @@ const sendSchema = z.object({
 
 /** Envía un anuncio manual a todos los suscriptores (solo administradores). */
 export const sendAnnouncement = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => sendSchema.parse(input))
-  .handler(async ({ data, context }) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await assertAdmin(context as any);
-
+  .middleware([requireFirebaseAdmin])
+  .validator((input: unknown) => sendSchema.parse(input))
+  .handler(async ({ data }) => {
     const { sendPushToAll } = await import("./push.server");
     return sendPushToAll({
       title: data.title,
@@ -32,16 +95,12 @@ export const sendAnnouncement = createServerFn({ method: "POST" })
 
 /** Cantidad de dispositivos suscritos (solo administradores). */
 export const countSubscribers = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await assertAdmin(context as any);
-
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { count, error } = await supabaseAdmin
-      .from("push_tokens")
-      .select("id", { count: "exact", head: true })
-      .eq("is_active", true);
-    if (error) throw new Error(error.message);
-    return { count: count ?? 0 };
+  .middleware([requireFirebaseAdmin])
+  .handler(async () => {
+    const db = getServerDb();
+    const tokensSnap = await get(
+      query(ref(db, "push_tokens"), orderByChild("is_active"), equalTo(true)),
+    );
+    const count = tokensSnap.exists() ? Object.keys(tokensSnap.val() as object).length : 0;
+    return { count };
   });

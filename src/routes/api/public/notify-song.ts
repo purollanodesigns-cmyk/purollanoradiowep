@@ -1,6 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { getDatabase, ref, get, set } from "firebase/database";
+import { getApp, getApps, initializeApp } from "firebase/app";
 
 const NOW_PLAYING_URL = "https://mipanel.stream/inc/widgets-api-en-vivo.php?porta=6816";
+
+function getServerDb() {
+  const firebaseConfig = {
+    apiKey: process.env["VITE_FIREBASE_API_KEY"] || "AIzaSyC-8UJUQcQX-1meKwlSpR-gozptwKwumIQ",
+    authDomain:
+      process.env["VITE_FIREBASE_AUTH_DOMAIN"] || "puro-llano-radio.firebaseapp.com",
+    databaseURL:
+      process.env["VITE_FIREBASE_DATABASE_URL"] ||
+      "https://puro-llano-radio-default-rtdb.firebaseio.com",
+    projectId: process.env["VITE_FIREBASE_PROJECT_ID"] || "puro-llano-radio",
+    storageBucket:
+      process.env["VITE_FIREBASE_STORAGE_BUCKET"] || "puro-llano-radio.firebasestorage.app",
+    messagingSenderId: process.env["VITE_FIREBASE_MESSAGING_SENDER_ID"] || "526331475757",
+    appId:
+      process.env["VITE_FIREBASE_APP_ID"] || "1:526331475757:web:8bea3b708143637a2bc5a4",
+  };
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  return getDatabase(app);
+}
 
 /**
  * Endpoint programado: revisa la canción en el aire y, si cambió,
@@ -12,12 +33,15 @@ export const Route = createFileRoute("/api/public/notify-song")({
     handlers: {
       POST: async ({ request }) => {
         const provided = request.headers.get("x-cron-secret") ?? "";
-        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { data: state } = await supabaseAdmin
-          .from("push_state")
-          .select("last_song, last_sent_at, cron_secret")
-          .eq("id", 1)
-          .maybeSingle();
+
+        // Leer estado desde Firebase RTDB
+        const db = getServerDb();
+        const stateSnap = await get(ref(db, "push_state"));
+        const state = stateSnap.val() as {
+          last_song?: string;
+          last_sent_at?: number;
+          cron_secret?: string;
+        } | null;
 
         const expected = state?.cron_secret ?? process.env["PUSH_CRON_SECRET"] ?? "";
         if (!expected || provided !== expected) {
@@ -40,18 +64,14 @@ export const Route = createFileRoute("/api/public/notify-song")({
           return Response.json({ ok: true, skipped: "empty" });
         }
 
-
-
-
-
         if (state?.last_song === raw) {
           return Response.json({ ok: true, skipped: "same_song" });
         }
 
         // No enviar más de una notificación cada 10 minutos.
-        const lastSentAt = state?.last_sent_at ? new Date(state.last_sent_at).getTime() : 0;
+        const lastSentAt = state?.last_sent_at ?? 0;
         if (Date.now() - lastSentAt < 10 * 60 * 1000) {
-          await supabaseAdmin.from("push_state").update({ last_song: raw }).eq("id", 1);
+          await set(ref(db, "push_state/last_song"), raw);
           return Response.json({ ok: true, skipped: "cooldown" });
         }
 
@@ -66,10 +86,12 @@ export const Route = createFileRoute("/api/public/notify-song")({
           path: "/",
         });
 
-        await supabaseAdmin
-          .from("push_state")
-          .update({ last_song: raw, last_sent_at: new Date().toISOString() })
-          .eq("id", 1);
+        // Actualizar estado en RTDB
+        await set(ref(db, "push_state"), {
+          ...(state ?? {}),
+          last_song: raw,
+          last_sent_at: Date.now(),
+        });
 
         return Response.json({ ok: true, song: raw, ...result });
       },
