@@ -23,7 +23,8 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
     try {
       // Leer user_roles desde RTDB
       const rolesSnap = await get(ref(db, "user_roles"));
-      const rolesData = (rolesSnap.val() as Record<string, string> | null) ?? {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rolesData = (rolesSnap.val() as Record<string, any> | null) ?? {};
 
       // Leer perfiles desde RTDB
       const profilesSnap = await get(ref(db, "profiles"));
@@ -39,12 +40,20 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
       const list: AdminUser[] = [];
       for (const uid of allUids) {
         const profile = profilesData[uid] ?? {};
+        const roleVal = rolesData[uid];
+        const isUserAdmin =
+          roleVal === "admin" ||
+          roleVal === true ||
+          (typeof roleVal === "object" &&
+            roleVal !== null &&
+            (roleVal.role === "admin" || roleVal.is_admin === true));
+
         list.push({
           id: uid,
-          email: profile.email ?? null,
+          email: profile.email ?? (typeof roleVal === "object" ? roleVal?.email : null),
           display_name: profile.display_name ?? null,
           created_at: profile.created_at ?? new Date().toISOString(),
-          is_admin: rolesData[uid] === "admin",
+          is_admin: isUserAdmin,
         });
       }
 
@@ -76,9 +85,9 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
     setFeedback(null);
     try {
       if (grant) {
-        await set(ref(db, `user_roles/${u.id}`), "admin");
+        await set(ref(db, `user_roles/${u.id}`), { role: "admin", email: u.email });
       } else {
-        await set(ref(db, `user_roles/${u.id}`), "user");
+        await set(ref(db, `user_roles/${u.id}`), { role: "user", email: u.email });
       }
       setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, is_admin: grant } : x)));
       setFeedback(grant ? "Rol de administrador otorgado." : "Rol de administrador retirado.");

@@ -41,11 +41,6 @@ function getServerDb() {
 
 /** Envía una notificación a todos los dispositivos activos registrados. */
 export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
-  const lovableKey = process.env["LOVABLE_API_KEY"];
-  const connectionKey = process.env["FIREBASE_MESSAGING_API_KEY"];
-  if (!lovableKey) throw new Error("LOVABLE_API_KEY no está configurada");
-  if (!connectionKey) throw new Error("FIREBASE_MESSAGING_API_KEY no está configurada");
-
   // Leer tokens activos desde Firebase RTDB
   const db = getServerDb();
   const tokensSnap = await get(
@@ -60,6 +55,19 @@ export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
         tokenEntries.push({ key: child.key!, token: data.token });
       }
     });
+  }
+
+  if (tokenEntries.length === 0) {
+    return { sent: 0, failed: 0, removed: 0 };
+  }
+
+  const lovableKey = process.env["LOVABLE_API_KEY"];
+  const connectionKey = process.env["FIREBASE_MESSAGING_API_KEY"];
+  if (!lovableKey || !connectionKey) {
+    console.warn(
+      "[Push] LOVABLE_API_KEY o FIREBASE_MESSAGING_API_KEY no están configuradas en el entorno",
+    );
+    return { sent: 0, failed: tokenEntries.length, removed: 0 };
   }
 
   const staleKeys: string[] = [];
