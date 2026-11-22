@@ -4,6 +4,8 @@
  */
 export interface AppNotification {
   id: string;
+  /** ID de la fuente original (p.ej. el key del anuncio en RTDB) para deduplicación. */
+  sourceId?: string;
   title: string;
   body: string;
   path?: string;
@@ -50,15 +52,23 @@ function save(list: AppNotification[]) {
   emit();
 }
 
-export function addNotification(n: { title: string; body: string; path?: string; image?: string }) {
+export function addNotification(n: { title: string; body: string; path?: string; image?: string; sourceId?: string }) {
   if (typeof window === "undefined") return;
   const list = getNotifications();
-  const last = list[0];
-  // Evita duplicados inmediatos del mismo aviso.
-  if (last && last.title === n.title && last.body === n.body && Date.now() - last.at < 60_000) return;
+
+  // Deduplicar por sourceId (ID del anuncio en Firebase) si está disponible.
+  if (n.sourceId && list.some((item) => item.sourceId === n.sourceId)) return;
+
+  // Fallback: evitar duplicado inmediato del mismo texto en < 60 s.
+  if (!n.sourceId) {
+    const last = list[0];
+    if (last && last.title === n.title && last.body === n.body && Date.now() - last.at < 60_000) return;
+  }
+
   save([
     {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      ...(n.sourceId ? { sourceId: n.sourceId } : {}),
       title: n.title,
       body: n.body,
       ...(n.path ? { path: n.path } : {}),

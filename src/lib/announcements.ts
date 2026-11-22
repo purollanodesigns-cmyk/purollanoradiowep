@@ -47,7 +47,11 @@ export async function fetchAnnouncements(limit = 20): Promise<Announcement[]> {
     if (!snapshot.exists()) return [];
 
     const data = snapshot.val();
-    const list: Announcement[] = Object.values(data);
+    // Preservamos la Firebase key como `id` de cada anuncio.
+    const list: Announcement[] = Object.entries(data).map(([key, val]) => ({
+      ...(val as Announcement),
+      id: (val as Announcement).id || key,
+    }));
     return list
       .filter((a) => a.is_published !== false)
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -83,6 +87,7 @@ export async function syncAnnouncements(): Promise<number> {
         title: a.title,
         body: a.body,
         path: a.path || "/",
+        sourceId: a.id,
         ...(a.image_url ? { image: a.image_url } : {}),
       });
     }
