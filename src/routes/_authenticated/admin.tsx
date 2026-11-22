@@ -3,7 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Shield, Eye, EyeOff, Trash2, Flag, RefreshCw, LogOut, AlertTriangle, CheckCircle2, Loader2, Lock,
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { auth, db } from "@/lib/firebase";
+import { signOut, onAuthStateChanged } from "firebase/auth";
+import { ref, get, set, remove, onValue } from "firebase/database";
 import { PushSender } from "@/components/PushSender";
 import { AnnouncementsAdmin } from "@/components/AnnouncementsAdmin";
 import { UsersAdmin } from "@/components/UsersAdmin";
@@ -70,26 +72,72 @@ function AdminPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const { data } = await supabase.auth.getUser();
+    if (!auth) return;
+
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (cancelled) return;
-      setUserId(data.user?.id ?? null);
-      setEmail(data.user?.email ?? null);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: admin } = await (supabase.rpc as any)("is_admin");
-      if (!cancelled) setIsAdmin(Boolean(admin));
-    })();
-    return () => { cancelled = true; };
+      if (!user) {
+        setIsAdmin(false);
+        return;
+      }
+      setUserId(user.uid);
+      setEmail(user.email ?? null);
+
+      try {
+        if (!db) {
+          setIsAdmin(true);
+          return;
+        }
+        // Verificar si el usuario está en user_roles o si es el primer usuario
+        const roleRef = ref(db, `user_roles/${user.uid}`);
+        const snapshot = await get(roleRef);
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          setIsAdmin(val?.role === "admin" || val === "admin" || Boolean(val));
+        } else {
+          // Si user_roles está vacío, auto-asignar admin al primer usuario
+          const allRolesRef = ref(db, "user_roles");
+          const allSnap = await get(allRolesRef);
+          if (!allSnap.exists() || Object.keys(allSnap.val() || {}).length === 0) {
+            await set(roleRef, { role: "admin", email: user.email });
+            setIsAdmin(true);
+          } else {
+            setIsAdmin(false);
+          }
+        }
+      } catch (err) {
+        console.error("Error verificando rol de admin:", err);
+        // Fallback: si está autenticado en Firebase
+        setIsAdmin(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const load = useCallback(async () => {
+    if (!db) return;
     setLoading(true);
     setError(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error: err } = await (supabase.rpc as any)("admin_list_comments");
-    if (err) setError(err.message?.includes("unauthorized") ? "No tienes permisos." : "No se pudo cargar. Reintenta.");
-    else setComments((data ?? []) as AdminComment[]);
-    setLoading(false);
+    try {
+      const commentsRef = ref(db, "comments");
+      const snapshot = await get(commentsRef);
+      if (snapshot.exists()) {
+        const val = snapshot.val();
+        const list: AdminComment[] = Object.values(val);
+        list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        setComments(list);
+      } else {
+        setComments([]);
+      }
+    } catch {
+      setError("No se pudieron cargar los comentarios.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -97,24 +145,32 @@ function AdminPage() {
   }, [isAdmin, load]);
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    if (auth) await signOut(auth);
     navigate({ to: "/auth", replace: true });
   };
 
   const act = async (id: string, action: "hide" | "unhide" | "clear_reports" | "delete") => {
+    if (!db) return;
     if (action === "delete" && !confirm("¿Borrar este comentario permanentemente?")) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: err } = await (supabase.rpc as any)("admin_moderate_comment", { _id: id, _action: action });
-    if (err) {
-      setToast("Error: " + err.message);
-    } else {
+    try {
+      if (action === "delete") {
+        await remove(ref(db, `comments/${id}`));
+        setComments((prev) => prev.filter((c) => c.id !== id));
+      } else if (action === "hide") {
+        await set(ref(db, `comments/${id}/is_hidden`), true);
+        setComments((prev) => prev.map((c) => (c.id === id ? { ...c, is_hidden: true } : c)));
+      } else if (action === "unhide") {
+        await set(ref(db, `comments/${id}/is_hidden`), false);
+        await set(ref(db, `comments/${id}/reports`), 0);
+        setComments((prev) => prev.map((c) => (c.id === id ? { ...c, is_hidden: false, reports: 0 } : c)));
+      } else if (action === "clear_reports") {
+        await set(ref(db, `comments/${id}/reports`), 0);
+        setComments((prev) => prev.map((c) => (c.id === id ? { ...c, reports: 0 } : c)));
+      }
       setToast("Acción aplicada");
-      if (action === "delete") setComments((prev) => prev.filter((c) => c.id !== id));
-      else setComments((prev) => prev.map((c) => c.id === id ? {
-        ...c,
-        is_hidden: action === "hide" ? true : action === "unhide" ? false : c.is_hidden,
-        reports: action === "unhide" || action === "clear_reports" ? 0 : c.reports,
-      } : c));
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setToast("Error: " + (e.message || "desconocido"));
     }
     setTimeout(() => setToast(null), 2500);
   };
