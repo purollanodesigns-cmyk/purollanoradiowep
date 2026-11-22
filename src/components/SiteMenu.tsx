@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Menu, X, Facebook, Instagram, Youtube, Twitter, Music2, Download, Megaphone } from "lucide-react";
 import { LOGO } from "@/lib/assets";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { ref, get } from "firebase/database";
 import { recordVisit } from "@/lib/visits.functions";
 
 import { usePWAInstall } from "@/hooks/usePWAInstall";
@@ -53,17 +54,15 @@ export function SiteMenu() {
         let count: number | null = null;
         if (already) {
           if (fresh && visits !== null) return;
-          const { data, error } = await supabase.rpc("get_visits");
-          if (error) throw error;
-          count = Number(data);
+          const snap = await get(ref(db, "site_visits/total"));
+          count = snap.exists() ? Number(snap.val()) : 0;
         } else {
           const res = await recordVisit();
           if (res?.total != null && Number.isFinite(res.total)) {
             count = Number(res.total);
           } else {
-            const { data, error } = await supabase.rpc("increment_visits");
-            if (error) throw error;
-            count = Number(data);
+            const snap = await get(ref(db, "site_visits/total"));
+            count = snap.exists() ? Number(snap.val()) : 0;
           }
           window.sessionStorage.setItem(VISIT_SESSION_KEY, "1");
         }

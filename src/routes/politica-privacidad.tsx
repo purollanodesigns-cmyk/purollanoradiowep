@@ -74,7 +74,7 @@ function Privacy() {
             </p>
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li><strong>Proveedor de Streaming (conectarhosting.com):</strong> Procesa las peticiones de reproducción de audio y maneja de forma temporal la dirección IP para realizar la conexión de streaming.</li>
-              <li><strong>Base de Datos y Analíticas (Supabase):</strong> Se utiliza para llevar un contador de visitas agregadas e interacciones generales (como comentarios voluntarios y me gusta).</li>
+              <li><strong>Base de Datos y Analíticas (Google Firebase):</strong> Se utiliza para llevar un contador de visitas agregadas e interacciones generales (como comentarios voluntarios y me gusta).</li>
             </ul>
           </section>
 
