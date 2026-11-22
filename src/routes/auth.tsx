@@ -48,7 +48,11 @@ function AuthPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy || !auth) return;
+    if (busy) return;
+    if (!auth) {
+      setMsg("Error: Firebase no está inicializado o faltan las variables en el cliente.");
+      return;
+    }
     setBusy(true);
     setMsg(null);
     try {
@@ -59,6 +63,7 @@ function AuthPage() {
         await signInWithEmailAndPassword(auth, email.trim(), password);
       }
     } catch (err: unknown) {
+      console.error("[Auth error]:", err);
       const error = err as { code?: string; message?: string };
       if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password" || error.code === "auth/user-not-found") {
         setMsg("Credenciales incorrectas.");
@@ -66,6 +71,8 @@ function AuthPage() {
         setMsg("El correo ya está registrado.");
       } else if (error.code === "auth/weak-password") {
         setMsg("La contraseña debe tener al menos 6 caracteres.");
+      } else if (error.code === "auth/operation-not-allowed") {
+        setMsg("El proveedor de correo/contraseña no está habilitado en Firebase Authentication.");
       } else {
         setMsg(error.message || "No se pudo completar la operación.");
       }
@@ -75,14 +82,24 @@ function AuthPage() {
   };
 
   const google = async () => {
-    if (!auth) return;
+    if (!auth) {
+      setMsg("Error: Firebase no está inicializado o faltan las variables en el cliente.");
+      return;
+    }
     setMsg(null);
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err: unknown) {
-      const error = err as { message?: string };
-      setMsg(error.message || "No se pudo iniciar con Google.");
+      console.error("[Google Auth error]:", err);
+      const error = err as { code?: string; message?: string };
+      if (error.code === "auth/operation-not-allowed") {
+        setMsg("El proveedor de Google no está habilitado en Firebase Authentication.");
+      } else if (error.code === "auth/popup-closed-by-user") {
+        setMsg("Ventana de Google cerrada.");
+      } else {
+        setMsg(error.message || "No se pudo iniciar con Google.");
+      }
     }
   };
 
