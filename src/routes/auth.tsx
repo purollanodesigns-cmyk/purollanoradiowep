@@ -1,7 +1,14 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Shield, Loader2, Mail, Lock, ArrowLeft } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { auth } from "@/lib/firebase";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  onAuthStateChanged,
+} from "firebase/auth";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -30,52 +37,52 @@ function AuthPage() {
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/admin", replace: true });
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && (event === "SIGNED_IN" || event === "INITIAL_SESSION")) {
+    if (!auth) return;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
         navigate({ to: "/admin", replace: true });
       }
     });
-    return () => sub.subscription.unsubscribe();
+    return () => unsubscribe();
   }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || !auth) return;
     setBusy(true);
     setMsg(null);
     try {
       if (mode === "up") {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: { emailRedirectTo: window.location.origin + "/auth" },
-        });
-        if (error) throw error;
-        setMsg(data.session ? "Cuenta creada." : "Revisa tu correo para confirmar la cuenta.");
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+        setMsg("Cuenta creada exitosamente.");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
+        await signInWithEmailAndPassword(auth, email.trim(), password);
       }
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "No se pudo completar la operación.");
+    } catch (err: unknown) {
+      const error = err as { code?: string; message?: string };
+      if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password" || error.code === "auth/user-not-found") {
+        setMsg("Credenciales incorrectas.");
+      } else if (error.code === "auth/email-already-in-use") {
+        setMsg("El correo ya está registrado.");
+      } else if (error.code === "auth/weak-password") {
+        setMsg("La contraseña debe tener al menos 6 caracteres.");
+      } else {
+        setMsg(error.message || "No se pudo completar la operación.");
+      }
     } finally {
       setBusy(false);
     }
   };
 
   const google = async () => {
+    if (!auth) return;
     setMsg(null);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin + "/auth" },
-      });
-      if (error) throw error;
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "No se pudo iniciar con Google.");
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setMsg(error.message || "No se pudo iniciar con Google.");
     }
   };
 
