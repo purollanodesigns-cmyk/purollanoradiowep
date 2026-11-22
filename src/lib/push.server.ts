@@ -41,20 +41,34 @@ function getServerDb() {
 
 /** Envía una notificación a todos los dispositivos activos registrados. */
 export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
-  // Leer tokens activos desde Firebase RTDB
+  // Leer tokens activos desde Firebase RTDB (con fallback si falta el índice .indexOn)
   const db = getServerDb();
-  const tokensSnap = await get(
-    query(ref(db, "push_tokens"), orderByChild("is_active"), equalTo(true)),
-  );
-
+  const tokensRef = ref(db, "push_tokens");
   const tokenEntries: Array<{ key: string; token: string }> = [];
-  if (tokensSnap.exists()) {
-    tokensSnap.forEach((child) => {
-      const data = child.val() as { token?: string; is_active?: boolean };
-      if (data.token) {
-        tokenEntries.push({ key: child.key!, token: data.token });
-      }
-    });
+
+  try {
+    const tokensSnap = await get(
+      query(tokensRef, orderByChild("is_active"), equalTo(true)),
+    );
+    if (tokensSnap.exists()) {
+      tokensSnap.forEach((child) => {
+        const data = child.val() as { token?: string; is_active?: boolean };
+        if (data.token) {
+          tokenEntries.push({ key: child.key!, token: data.token });
+        }
+      });
+    }
+  } catch {
+    // Si falta el índice en las reglas de Firebase, leemos directamente push_tokens
+    const fallbackSnap = await get(tokensRef);
+    if (fallbackSnap.exists()) {
+      fallbackSnap.forEach((child) => {
+        const data = child.val() as { token?: string; is_active?: boolean };
+        if (data.token && data.is_active !== false) {
+          tokenEntries.push({ key: child.key!, token: data.token });
+        }
+      });
+    }
   }
 
   if (tokenEntries.length === 0) {

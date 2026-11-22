@@ -111,9 +111,26 @@ export const countSubscribers = createServerFn({ method: "POST" })
   .middleware([requireFirebaseAdmin])
   .handler(async () => {
     const db = getServerDb();
-    const tokensSnap = await get(
-      query(ref(db, "push_tokens"), orderByChild("is_active"), equalTo(true)),
-    );
-    const count = tokensSnap.exists() ? Object.keys(tokensSnap.val() as object).length : 0;
+    const tokensRef = ref(db, "push_tokens");
+    let count = 0;
+
+    try {
+      const tokensSnap = await get(
+        query(tokensRef, orderByChild("is_active"), equalTo(true)),
+      );
+      if (tokensSnap.exists()) {
+        count = Object.keys(tokensSnap.val() as object).length;
+      }
+    } catch {
+      // Fallback si no está desplegado el índice en las reglas de RTDB
+      const snap = await get(tokensRef);
+      if (snap.exists()) {
+        snap.forEach((child) => {
+          const val = child.val() as { is_active?: boolean };
+          if (val && val.is_active !== false) count++;
+        });
+      }
+    }
+
     return { count };
   });

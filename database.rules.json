@@ -2,15 +2,18 @@
   "rules": {
     "announcements": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null",
+      ".indexOn": ["created_at", "is_published"]
     },
     "recommended_videos": {
       ".read": true,
-      ".write": "auth != null"
+      ".write": "auth != null",
+      ".indexOn": ["sort_order", "is_published"]
     },
     "comments": {
       ".read": true,
       ".write": true,
+      ".indexOn": ["created_at", "is_hidden"],
       "$commentId": {
         ".validate": "newData.hasChildren(['id', 'name', 'message'])"
       }
@@ -20,6 +23,11 @@
       ".write": true
     },
     "push_tokens": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["is_active"]
+    },
+    "push_state": {
       ".read": true,
       ".write": true
     },
