@@ -31,6 +31,16 @@
       ".read": true,
       ".write": true
     },
+    "push_broadcasts": {
+      ".read": true,
+      ".write": "auth != null",
+      ".indexOn": ["created_at"]
+    },
+    "push_log": {
+      ".read": true,
+      ".write": "auth != null",
+      ".indexOn": ["at"]
+    },
     "profiles": {
       ".read": true,
       "$uid": {

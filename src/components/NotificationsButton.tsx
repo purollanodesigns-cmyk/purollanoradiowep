@@ -30,6 +30,8 @@ import {
   type AppNotification,
 } from "@/lib/notifications-store";
 import { syncAnnouncements } from "@/lib/announcements";
+import { db } from "@/lib/firebase";
+import { ref, query, limitToLast, onChildAdded } from "firebase/database";
 
 const EMPTY: AppNotification[] = [];
 
@@ -127,6 +129,87 @@ export function NotificationsButton() {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
+  }, []);
+
+  // Escucha en tiempo real emisiones de notificaciones push desde el panel
+  useEffect(() => {
+    if (typeof window === "undefined" || !db) return;
+    try {
+      const broadcastsRef = query(ref(db, "push_broadcasts"), limitToLast(5));
+      const unsub = onChildAdded(broadcastsRef, (snap) => {
+        const b = snap.val() as {
+          title?: string;
+          body?: string;
+          image?: string | null;
+          path?: string;
+          created_at?: number;
+        };
+        if (!b || !b.title) return;
+
+        // Solo notificar si fue emitido recientemente (últimos 30 minutos)
+        if (b.created_at && Date.now() - b.created_at > 30 * 60 * 1000) return;
+
+        const seenKey = `pll_bcast_${snap.key}`;
+        if (window.localStorage.getItem(seenKey)) return;
+        window.localStorage.setItem(seenKey, "1");
+
+        // 1. Agregar al buzón interno con deduplicación por sourceId
+        addNotification({
+          title: b.title,
+          body: b.body ?? "",
+          path: b.path || "/",
+          image: b.image || undefined,
+          sourceId: snap.key ?? undefined,
+        });
+
+        // 2. Disparar notificación nativa del sistema en móvil o PC si tiene permiso
+        if ("Notification" in window && Notification.permission === "granted") {
+          const title = b.title;
+          const body = b.body ?? "";
+          const image = b.image || undefined;
+          const path = b.path || "/";
+
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.ready
+              .then((reg) => {
+                void reg.showNotification(title, {
+                  body,
+                  icon: "/purollano-logo.png",
+                  badge: "/purollano-logo.png",
+                  ...(image ? { image } : {}),
+                  tag: `pll-${snap.key}`,
+                  renotify: true,
+                  vibrate: [250, 100, 250, 100, 250],
+                  data: { path },
+                  actions: [
+                    { action: "listen", title: "▶ Escuchar en vivo" },
+                    { action: "open", title: "Abrir radio" },
+                  ],
+                });
+              })
+              .catch(() => {
+                try {
+                  new Notification(title, { body, icon: "/purollano-logo.png" });
+                } catch {
+                  /* ignorar */
+                }
+              });
+          } else {
+            try {
+              new Notification(title, { body, icon: "/purollano-logo.png" });
+            } catch {
+              /* ignorar */
+            }
+          }
+        }
+      });
+
+      return () => {
+        unsub();
+      };
+    } catch {
+      /* ignorar */
+    }
   }, []);
 
   useEffect(() => {

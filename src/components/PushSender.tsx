@@ -113,8 +113,10 @@ export function PushSender() {
         },
       });
       setFeedbackMsg(
-        res.failed === 0,
-        `✅ Enviadas: ${res.sent} dispositivos${res.failed > 0 ? ` · ⚠️ Fallidas: ${res.failed}` : ""}`,
+        res.sent > 0,
+        res.sent > 0
+          ? `✅ Notificación emitida con éxito a ${res.sent} dispositivo(s)${res.failed > 0 ? ` (${res.failed} fallidas)` : ""}`
+          : `⚠️ No se pudo entregar la notificación`,
       );
       setBody("");
       setImage("");
