@@ -1,0 +1,37 @@
+{
+  "rules": {
+    "announcements": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "recommended_videos": {
+      ".read": true,
+      ".write": "auth != null"
+    },
+    "comments": {
+      ".read": true,
+      ".write": true,
+      "$commentId": {
+        ".validate": "newData.hasChildren(['id', 'name', 'message'])"
+      }
+    },
+    "site_visits": {
+      ".read": true,
+      ".write": true
+    },
+    "push_tokens": {
+      ".read": true,
+      ".write": true
+    },
+    "profiles": {
+      ".read": true,
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "user_roles": {
+      ".read": true,
+      ".write": "auth != null"
+    }
+  }
+}
