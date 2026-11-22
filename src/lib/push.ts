@@ -6,14 +6,25 @@ import { db } from "@/lib/firebase";
 import { ref, set } from "firebase/database";
 import { addNotification } from "@/lib/notifications-store";
 
-const appId = import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_APP_ID as string | undefined;
-const vapidKey = import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_VAPID_KEY as string | undefined;
+// Usamos las mismas variables de entorno que firebase.ts, con fallback hardcoded
+const apiKeyFCM =
+  import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyC-8UJUQcQX-1meKwlSpR-gozptwKwumIQ";
+const projectIdFCM =
+  import.meta.env.VITE_FIREBASE_PROJECT_ID || "puro-llano-radio";
+const appIdFCM =
+  import.meta.env.VITE_FIREBASE_APP_ID || "1:526331475757:web:8bea3b708143637a2bc5a4";
+const messagingSenderIdFCM =
+  import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "526331475757";
+// La VAPID key pública de FCM (se genera en Firebase Console → Cloud Messaging)
+const vapidKey =
+  import.meta.env.VITE_FIREBASE_VAPID_KEY as string | undefined ||
+  import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_VAPID_KEY as string | undefined;
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_WEB_API_KEY as string | undefined,
-  projectId: import.meta.env.VITE_LOVABLE_CONNECTOR_FIREBASE_MESSAGING_PROJECT_ID as string | undefined,
-  appId,
-  messagingSenderId: appId?.split(":")[1] ?? "",
+  apiKey: apiKeyFCM,
+  projectId: projectIdFCM,
+  appId: appIdFCM,
+  messagingSenderId: messagingSenderIdFCM,
 };
 
 export const TOKEN_STORAGE_KEY = "pll_push_token";
@@ -47,7 +58,7 @@ export interface PushResult {
 
 /** Activa las notificaciones push. Llamar desde un click del usuario. */
 export async function enablePush(): Promise<PushResult> {
-  if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !appId || !vapidKey || !firebaseConfig.messagingSenderId) {
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !firebaseConfig.appId || !firebaseConfig.messagingSenderId) {
     return { status: "not-configured" };
   }
   if (typeof window === "undefined") return { status: "unsupported" };
@@ -66,7 +77,7 @@ export async function enablePush(): Promise<PushResult> {
     const query = new URLSearchParams({
       apiKey: firebaseConfig.apiKey,
       projectId: firebaseConfig.projectId,
-      appId,
+      appId: firebaseConfig.appId,
       messagingSenderId: firebaseConfig.messagingSenderId,
     }).toString();
 
@@ -77,7 +88,10 @@ export async function enablePush(): Promise<PushResult> {
     const { initializeApp, getApps, getApp } = await import("firebase/app");
     const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
     const messaging = getMessaging(app);
-    const token = await getToken(messaging, { vapidKey, serviceWorkerRegistration });
+    const token = await getToken(messaging, {
+      serviceWorkerRegistration,
+      ...(vapidKey ? { vapidKey } : {}),
+    });
     if (!token) return { status: "denied" };
 
     // Registrar el token en Firebase Realtime Database
@@ -162,7 +176,7 @@ export function hasPushToken(): boolean {
 /** True si el entorno puede soportar push (sin pedir permiso). */
 export function pushConfigured(): boolean {
   return Boolean(
-    firebaseConfig.apiKey && firebaseConfig.projectId && appId && vapidKey && firebaseConfig.messagingSenderId,
+    firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId && firebaseConfig.messagingSenderId,
   );
 }
 

@@ -2,7 +2,7 @@
  * Envío de notificaciones push vía el gateway de Firebase Cloud Messaging.
  * Solo servidor.
  */
-import { getDatabase, ref, get, query, orderByChild, equalTo, set } from "firebase/database";
+import { getDatabase, ref, get, query, orderByChild, equalTo, set, push as rtdbPush } from "firebase/database";
 import { getApp, getApps, initializeApp } from "firebase/app";
 
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/firebase_messaging";
@@ -152,6 +152,20 @@ export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
     await Promise.all(
       staleKeys.map((key) => set(ref(db, `push_tokens/${key}/is_active`), false)),
     );
+  }
+
+  // Guardar registro en el historial de push_log
+  try {
+    const logRef = rtdbPush(ref(db, "push_log"));
+    await set(logRef, {
+      title: message.title,
+      body: message.body,
+      sent,
+      failed,
+      at: Date.now(),
+    });
+  } catch (err) {
+    console.error("[Push] Error guardando historial de push:", err);
   }
 
   return { sent, failed, removed: staleKeys.length };

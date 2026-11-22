@@ -55,7 +55,7 @@ interface AdminComment {
   created_at: string;
 }
 
-type Tab = "comentarios" | "anuncios" | "videos" | "usuarios" | "estadísticas";
+type Tab = "comentarios" | "anuncios" | "notificaciones" | "videos" | "usuarios" | "estadísticas";
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -233,12 +233,12 @@ function AdminPage() {
             </button>
           </div>
         </div>
-        <nav className="mx-auto flex max-w-6xl gap-2 px-4 pb-3 sm:px-6">
-          {(["comentarios", "anuncios", "videos", "usuarios", "estadísticas"] as const).map((t) => (
+        <nav className="mx-auto flex max-w-6xl gap-2 overflow-x-auto px-4 pb-3 sm:px-6">
+          {(["comentarios", "anuncios", "notificaciones", "videos", "usuarios", "estadísticas"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`rounded-full px-4 py-1.5 text-xs uppercase tracking-widest transition ${
+              className={`rounded-full px-4 py-1.5 text-xs uppercase tracking-widest whitespace-nowrap transition ${
                 tab === t ? "bg-[var(--sabana)] text-[var(--crema)]" : "border border-[var(--sabana)]/20 hover:bg-[var(--oro)]/20"
               }`}
             >
@@ -255,12 +255,9 @@ function AdminPage() {
 
         {tab === "videos" && <VideosAdmin />}
 
-        {tab === "anuncios" && (
-          <>
-            <PushSender />
-            <AnnouncementsAdmin />
-          </>
-        )}
+        {tab === "notificaciones" && <PushSender />}
+
+        {tab === "anuncios" && <AnnouncementsAdmin />}
 
         {tab === "comentarios" && (
           <>
