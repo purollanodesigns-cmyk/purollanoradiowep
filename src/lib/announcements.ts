@@ -2,7 +2,8 @@
  * Anuncios publicados desde el panel de moderación.
  * Se sincronizan automáticamente al buzón local de notificaciones.
  */
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { ref, get, query, limitToLast } from "firebase/database";
 import { addNotification } from "@/lib/notifications-store";
 
 export interface Announcement {
@@ -12,6 +13,7 @@ export interface Announcement {
   image_url: string | null;
   path: string;
   created_at: string;
+  is_published?: boolean;
 }
 
 const SEEN_KEY = "pll_announcements_seen";
@@ -36,16 +38,23 @@ function saveSeen(ids: string[]) {
   }
 }
 
-/** Últimos anuncios publicados (lectura pública). */
+/** Últimos anuncios publicados (lectura pública desde Firebase Realtime Database). */
 export async function fetchAnnouncements(limit = 20): Promise<Announcement[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.from as any)("announcements")
-    .select("id, title, body, image_url, path, created_at")
-    .eq("is_published", true)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) throw error;
-  return (data ?? []) as Announcement[];
+  if (!db) return [];
+  try {
+    const announcementsRef = query(ref(db, "announcements"), limitToLast(limit));
+    const snapshot = await get(announcementsRef);
+    if (!snapshot.exists()) return [];
+
+    const data = snapshot.val();
+    const list: Announcement[] = Object.values(data);
+    return list
+      .filter((a) => a.is_published !== false)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  } catch (err) {
+    console.error("[Anuncios] Error al consultar Firebase:", err);
+    return [];
+  }
 }
 
 /**

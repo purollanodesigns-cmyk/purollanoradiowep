@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageSquare, Send, Flag, Heart, Loader2, AlertCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { ref, onValue, set, update, runTransaction } from "firebase/database";
 
 interface Comment {
   id: string;
@@ -9,6 +10,7 @@ interface Comment {
   likes: number;
   reports: number;
   created_at: string;
+  is_hidden?: boolean;
 }
 
 const LIKED_KEY = "pll_comments_liked_v2";
@@ -92,50 +94,42 @@ export function Comments() {
       /* ignore */
     }
 
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("comments")
-        .select("id,name,message,likes,reports,created_at")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (cancelled) return;
-      if (error) {
-        setError("No se pudieron cargar los comentarios.");
-      } else {
-        setComments((data ?? []) as Comment[]);
-      }
+    if (!db) {
       setLoading(false);
-    })();
+      return;
+    }
 
-    // realtime updates
-    const channel = supabase
-      .channel("comments-live")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "comments" },
-        (payload) => {
-          const c = payload.new as Comment & { is_hidden: boolean; reports: number };
-          if (c.is_hidden || c.reports >= 3) return;
-          setComments((prev) => (prev.some((x) => x.id === c.id) ? prev : [c, ...prev].slice(0, 100)));
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "comments" },
-        (payload) => {
-          const c = payload.new as Comment & { is_hidden: boolean; reports: number };
-          setComments((prev) => {
-            if (c.is_hidden || c.reports >= 3) return prev.filter((x) => x.id !== c.id);
-            return prev.map((x) => (x.id === c.id ? { ...x, likes: c.likes, reports: c.reports } : x));
-          });
-        },
-      )
-      .subscribe();
+    const commentsRef = ref(db, "comments");
+    const unsubscribe = onValue(
+      commentsRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setComments([]);
+          setLoading(false);
+          return;
+        }
+        const data = snapshot.val();
+        const list: (Comment & { is_hidden?: boolean })[] = Object.values(data);
+        const filtered = list
+          .filter((c) => !c.is_hidden && (c.reports || 0) < 3)
+          .sort(
+            (a, b) =>
+              new Date(b.created_at || 0).getTime() -
+              new Date(a.created_at || 0).getTime()
+          )
+          .slice(0, 100);
+        setComments(filtered);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("[Comments] Error listener realtime:", err);
+        setError("No se pudieron cargar los comentarios.");
+        setLoading(false);
+      }
+    );
 
     return () => {
-      cancelled = true;
-      supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []);
 
@@ -146,30 +140,34 @@ export function Comments() {
     if (Date.now() - submittedAt < 20_000) {
       return setError("Espera unos segundos antes de publicar otro comentario.");
     }
+    if (honeypot) {
+      setSubmitting(false);
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
-      const { data, error } = await supabase.rpc("post_comment", {
-        _name: name.trim(),
-        _message: message.trim(),
-        _client_id: getClientId(),
-        _honeypot: honeypot,
-      });
-      if (error) {
-        const key = (error.message || "").match(/([a-z_]+)/)?.[1] ?? "";
-        setError(ERROR_MAP[key] ?? "No se pudo publicar tu comentario. Intenta de nuevo.");
-      } else if (Array.isArray(data) && data[0]) {
-        // realtime will insert; still add optimistically in case channel is slow
-        setComments((prev) =>
-          prev.some((x) => x.id === (data[0] as Comment).id) ? prev : [data[0] as Comment, ...prev],
-        );
-        setMessage("");
-        setSubmittedAt(Date.now());
-        try {
-          localStorage.setItem(NAME_KEY, name.trim());
-        } catch {
-          /* ignore */
-        }
+      if (!db) throw new Error("Firebase no configurado");
+      const commentId = `cm_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const newComment: Comment & { is_hidden: boolean; client_id: string } = {
+        id: commentId,
+        name: name.trim(),
+        message: message.trim(),
+        likes: 0,
+        reports: 0,
+        created_at: new Date().toISOString(),
+        is_hidden: false,
+        client_id: getClientId(),
+      };
+
+      await set(ref(db, `comments/${commentId}`), newComment);
+
+      setMessage("");
+      setSubmittedAt(Date.now());
+      try {
+        localStorage.setItem(NAME_KEY, name.trim());
+      } catch {
+        /* ignore */
       }
     } catch {
       setError("Error de conexión. Intenta más tarde.");
@@ -179,6 +177,7 @@ export function Comments() {
   };
 
   const toggleLike = async (id: string) => {
+    if (!db) return;
     const wasLiked = liked.has(id);
     const delta = wasLiked ? -1 : 1;
     // optimistic
@@ -188,8 +187,13 @@ export function Comments() {
     setLiked(s);
     saveSet(LIKED_KEY, s);
     setComments((prev) => prev.map((c) => (c.id === id ? { ...c, likes: Math.max(0, c.likes + delta) } : c)));
-    const { error } = await supabase.rpc("toggle_like_comment", { _id: id, _delta: delta });
-    if (error) {
+
+    try {
+      const commentLikesRef = ref(db, `comments/${id}/likes`);
+      await runTransaction(commentLikesRef, (currentLikes) => {
+        return Math.max(0, (currentLikes || 0) + delta);
+      });
+    } catch {
       // revert
       const r = new Set(liked);
       setLiked(r);
@@ -198,13 +202,21 @@ export function Comments() {
   };
 
   const report = async (id: string) => {
-    if (reported.has(id)) return;
+    if (reported.has(id) || !db) return;
     if (!confirm("¿Reportar este comentario como inapropiado?")) return;
     const s = new Set(reported);
     s.add(id);
     setReported(s);
     saveSet(REPORTED_KEY, s);
-    await supabase.rpc("report_comment", { _id: id });
+
+    try {
+      const commentReportsRef = ref(db, `comments/${id}/reports`);
+      await runTransaction(commentReportsRef, (currentReports) => {
+        return (currentReports || 0) + 1;
+      });
+    } catch {
+      /* ignore */
+    }
   };
 
   const canPost = name.trim().length >= 2 && message.trim().length >= 3 && !submitting;

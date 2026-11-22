@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { Play, Sparkles } from "lucide-react";
 import { Reveal } from "@/components/Reveal";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/firebase";
+import { ref, onValue } from "firebase/database";
 
 interface RecVideo {
   id: string;
   youtube_id: string;
   title: string;
   description: string | null;
+  sort_order?: number;
+  is_published?: boolean;
+  created_at?: string;
 }
 
 function VideoCard({ video }: { video: RecVideo }) {
@@ -60,36 +64,37 @@ export function RecommendedVideos() {
   const [videos, setVideos] = useState<RecVideo[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      const { data } = await supabase
-        .from("recommended_videos")
-        .select("id, youtube_id, title, description")
-        .eq("is_published", true)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: false })
-        .limit(24);
-      if (!cancelled) setVideos((data ?? []) as RecVideo[]);
-    };
-
-    void load();
-
-    const channel = supabase
-      .channel("recommended-videos")
-      .on("postgres_changes", { event: "*", schema: "public", table: "recommended_videos" }, () => {
-        void load();
-      })
-      .subscribe();
-
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 120000);
+    if (!db) return;
+    const videosRef = ref(db, "recommended_videos");
+    const unsubscribe = onValue(
+      videosRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          setVideos([]);
+          return;
+        }
+        const data = snapshot.val();
+        const list: RecVideo[] = Object.values(data);
+        const filtered = list
+          .filter((v) => v.is_published !== false)
+          .sort((a, b) => {
+            const orderDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+            if (orderDiff !== 0) return orderDiff;
+            return (
+              new Date(b.created_at || 0).getTime() -
+              new Date(a.created_at || 0).getTime()
+            );
+          })
+          .slice(0, 24);
+        setVideos(filtered);
+      },
+      (error) => {
+        console.error("[RecommendedVideos] Error en realtime listener:", error);
+      }
+    );
 
     return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      void supabase.removeChannel(channel);
+      unsubscribe();
     };
   }, []);
 

@@ -1,32 +1,35 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeader } from "@tanstack/react-start/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+import { db } from "@/lib/firebase";
+import { ref, runTransaction } from "firebase/database";
 
-/** Registra una visita con el país detectado por cabeceras del edge. */
+/** Registra una visita con el país detectado por cabeceras del edge en Realtime Database. */
 export const recordVisit = createServerFn({ method: "POST" }).handler(async () => {
   const country =
     getRequestHeader("cf-ipcountry") ??
     getRequestHeader("x-vercel-ip-country") ??
     getRequestHeader("x-country-code") ??
-    null;
+    "UNKNOWN";
 
-  const url = process.env["SUPABASE_URL"]!;
-  const key = process.env["SUPABASE_PUBLISHABLE_KEY"]!;
-  const supabase = createClient<Database>(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: {
-      fetch: (input, init) => {
-        const h = new Headers(init?.headers);
-        if (key.startsWith("sb_") && h.get("Authorization") === `Bearer ${key}`) h.delete("Authorization");
-        h.set("apikey", key);
-        return fetch(input, { ...init, headers: h });
-      },
-    },
-  });
+  if (!db) {
+    return { total: null as number | null };
+  }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase.rpc as any)("log_visit", { _country: country });
-  if (error) return { total: null as number | null };
-  return { total: Number(data) };
+  try {
+    const visitsTotalRef = ref(db, "site_visits/total");
+    const result = await runTransaction(visitsTotalRef, (currentTotal) => {
+      return (currentTotal || 0) + 1;
+    });
+
+    // Guardar también desglose por país
+    if (country) {
+      const countryRef = ref(db, `site_visits/by_country/${country.replace(/[.#$[\]]/g, "_")}`);
+      await runTransaction(countryRef, (cnt) => (cnt || 0) + 1);
+    }
+
+    return { total: Number(result.snapshot.val()) };
+  } catch (err) {
+    console.error("[Visits] Error actualizando visitas:", err);
+    return { total: null as number | null };
+  }
 });
