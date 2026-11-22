@@ -77,7 +77,12 @@ export function AnnouncementsAdmin() {
           const token = await getIdToken();
           const res = await sendAnnouncement({
             headers: { Authorization: `Bearer ${token}` },
-            data: { title: title.trim(), body: body.trim().slice(0, 300), path: "/" },
+            data: {
+              title: title.trim(),
+              body: body.trim().slice(0, 300),
+              path: "/",
+              image: image.trim() || undefined,
+            },
           });
           extra = ` · Push enviadas: ${res.sent}, fallidas: ${res.failed}`;
         } catch {

@@ -89,10 +89,26 @@ export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
           body: message.body,
           ...(message.image ? { image: message.image } : {}),
         },
-        data: { path: message.path ?? "/" },
+        data: {
+          path: message.path ?? "/",
+          title: message.title,
+          body: message.body,
+          ...(message.image ? { image: message.image } : {}),
+        },
         webpush: {
           fcm_options: { link: message.path ?? "/" },
-          notification: { icon: "/purollano-logo.png", badge: "/purollano-logo.png" },
+          notification: {
+            icon: "/purollano-logo.png",
+            badge: "/purollano-logo.png",
+            ...(message.image ? { image: message.image } : {}),
+            vibrate: [250, 100, 250, 100, 250],
+            tag: "purollano-push-alert",
+            renotify: true,
+            actions: [
+              { action: "listen", title: "▶ Escuchar en vivo" },
+              { action: "open", title: "Abrir radio" },
+            ],
+          },
         },
       },
     };

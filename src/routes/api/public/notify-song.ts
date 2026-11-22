@@ -83,7 +83,8 @@ export const Route = createFileRoute("/api/public/notify-song")({
         const result = await sendPushToAll({
           title: "🎵 Sonando ahora en Puro Llano Radio",
           body: artist ? `${title} — ${artist}` : title,
-          path: "/",
+          path: "/?play=1",
+          image: "https://purollanoradio.lovable.app/hero-portada.jpg",
         });
 
         // Actualizar estado en RTDB

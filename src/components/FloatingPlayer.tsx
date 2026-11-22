@@ -92,6 +92,22 @@ export function FloatingPlayer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing]);
 
+  // Auto-iniciar si el usuario tocó la acción de la notificación push ("▶ Escuchar en vivo")
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("play") === "1" || params.get("action") === "listen") {
+      params.delete("play");
+      params.delete("action");
+      const cleanSearch = params.toString() ? `?${params.toString()}` : "";
+      window.history.replaceState({}, "", window.location.pathname + cleanSearch);
+      setTimeout(() => {
+        if (!playing) void toggle();
+      }, 400);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggle = async () => {
     const a = audioRef.current;
     if (!a) return;

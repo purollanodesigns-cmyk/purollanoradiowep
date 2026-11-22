@@ -89,6 +89,7 @@ const sendSchema = z.object({
   title: z.string().min(2).max(80),
   body: z.string().min(2).max(300),
   path: z.string().max(200).optional(),
+  image: z.string().max(800).optional(),
 });
 
 /** Envía un anuncio manual a todos los suscriptores (solo administradores). */
@@ -101,6 +102,7 @@ export const sendAnnouncement = createServerFn({ method: "POST" })
       title: data.title,
       body: data.body,
       path: data.path && data.path.startsWith("/") ? data.path : "/",
+      image: data.image && data.image.startsWith("http") ? data.image : undefined,
     });
   });
 

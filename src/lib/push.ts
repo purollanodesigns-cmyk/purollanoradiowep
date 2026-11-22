@@ -93,16 +93,28 @@ export async function enablePush(): Promise<PushResult> {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
     setPushOptOut(false);
 
-    // Avisos en primer plano (la pestaña abierta no muestra la notificación sola).
+    // Avisos en primer plano (la pestaña abierta muestra notificación rica nativa).
     onMessage(messaging, (payload) => {
       const title = payload.notification?.title ?? "Puro Llano Radio";
       const body = payload.notification?.body ?? "";
-      addNotification({ title, body, path: (payload.data?.["path"] as string | undefined) ?? "/" });
+      const image = payload.notification?.image || (payload.data?.["image"] as string | undefined);
+      const path = (payload.data?.["path"] as string | undefined) ?? "/";
+
+      addNotification({ title, body, path, image });
       try {
         void serviceWorkerRegistration.showNotification(title, {
           body,
           icon: "/purollano-logo.png",
           badge: "/purollano-logo.png",
+          ...(image ? { image } : {}),
+          tag: "purollano-push-alert",
+          renotify: true,
+          vibrate: [250, 100, 250, 100, 250],
+          data: { path },
+          actions: [
+            { action: "listen", title: "▶ Escuchar en vivo" },
+            { action: "open", title: "Abrir radio" },
+          ],
         });
       } catch {
         /* ignorar */
