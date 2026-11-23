@@ -11,11 +11,16 @@ import {
   History,
   AlertCircle,
   Wifi,
+  Radio,
+  Music,
+  Zap,
+  Disc3,
 } from "lucide-react";
 import { getAuth } from "firebase/auth";
 import { app, db } from "@/lib/firebase";
 import { sendAnnouncement, countSubscribers } from "@/lib/push.functions";
 import { ref, get, limitToLast, query as rtdbQuery } from "firebase/database";
+import { useNowPlaying } from "@/hooks/use-now-playing";
 
 interface PushLogEntry {
   id: string;
@@ -50,6 +55,53 @@ export function PushSender() {
   const [history, setHistory] = useState<PushLogEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nowPlaying = useNowPlaying();
+
+  const applyCurrentSong = () => {
+    const songTitle = nowPlaying.title || "Puro Llano Radio";
+    const songArtist = nowPlaying.artist ? ` — ${nowPlaying.artist}` : "";
+    setTitle("🎵 Sonando ahora en Puro Llano Radio");
+    setBody(`¡Sintoniza ahora! Escucha "${songTitle}"${songArtist} en vivo.`);
+    setImage(nowPlaying.artwork || "");
+    setPath("/?play=1");
+  };
+
+  const sendCurrentSongDirectly = async () => {
+    if (busy) return;
+    const songTitle = nowPlaying.title || "Puro Llano Radio";
+    const songArtist = nowPlaying.artist ? ` — ${nowPlaying.artist}` : "";
+    const directTitle = "🎵 Sonando ahora en Puro Llano Radio";
+    const directBody = `¡Sintoniza ahora! Escucha "${songTitle}"${songArtist} en vivo.`;
+    const directImage = nowPlaying.artwork || undefined;
+    const directPath = "/?play=1";
+
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const token = await getIdToken();
+      const res = await sendAnnouncement({
+        headers: { Authorization: `Bearer ${token}` },
+        data: {
+          title: directTitle,
+          body: directBody,
+          path: directPath,
+          image: directImage,
+        },
+      });
+      setFeedbackMsg(
+        res.sent > 0,
+        res.sent > 0
+          ? `✅ Notificación de la canción "${songTitle}" emitida con éxito a ${res.sent} dispositivo(s)`
+          : `⚠️ No se pudo entregar la notificación`,
+      );
+      await loadHistory();
+      await loadSubs();
+    } catch (err) {
+      setFeedbackMsg(false, err instanceof Error ? err.message : "Error al enviar la canción");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const loadSubs = async () => {
     setSubsLoading(true);
@@ -181,6 +233,68 @@ export function PushSender() {
           </span>
         </div>
       )}
+
+      {/* Sección especial: Notificar canción actual en vivo */}
+      <div className="mt-4 rounded-2xl border border-[var(--oro)]/40 bg-gradient-to-br from-[var(--oro)]/10 via-[var(--crema)] to-[var(--oro)]/5 p-4 shadow-xs">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--sabana)]">
+            <Radio className="h-4 w-4 text-[var(--terracota)] animate-pulse" />
+            <span>Canción sonando ahora en vivo</span>
+          </div>
+          <span className="flex items-center gap-1.5 rounded-full bg-green-100 px-2.5 py-0.5 text-[11px] font-medium text-green-800">
+            <span className="h-2 w-2 rounded-full bg-green-600 animate-pulse" />
+            Al aire
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center gap-3">
+          {nowPlaying.artwork ? (
+            <img
+              src={nowPlaying.artwork}
+              alt={nowPlaying.title}
+              className="h-14 w-14 rounded-xl object-cover shadow-sm border border-[var(--sabana)]/20 shrink-0"
+            />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-[var(--sabana)]/15 text-[var(--sabana)] shrink-0">
+              <Disc3 className="h-8 w-8 animate-spin" style={{ animationDuration: "8s" }} />
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-display text-sm font-bold text-[var(--sabana)]">
+              {nowPlaying.title || "Puro Llano Radio"}
+            </p>
+            <p className="truncate text-xs text-[var(--carbon)]/80">
+              {nowPlaying.artist || "El canto de la sabana"}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3.5 flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--oro)]/20">
+          <button
+            type="button"
+            onClick={applyCurrentSong}
+            className="flex items-center gap-1.5 rounded-full border border-[var(--sabana)]/25 bg-white px-3.5 py-1.5 text-xs font-medium text-[var(--sabana)] shadow-xs transition hover:bg-[var(--crema)]"
+          >
+            <Music className="h-3.5 w-3.5 text-[var(--terracota)]" />
+            Cargar en el formulario
+          </button>
+
+          <button
+            type="button"
+            onClick={sendCurrentSongDirectly}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-full bg-[var(--sabana)] px-4 py-1.5 text-xs font-semibold text-[var(--crema)] shadow-sm transition hover:bg-[var(--terracota)] disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Zap className="h-3.5 w-3.5 text-[var(--oro)]" />
+            )}
+            Enviar canción en 1 clic
+          </button>
+        </div>
+      </div>
 
       {/* Formulario */}
       <form onSubmit={submit} className="mt-4 space-y-3">
