@@ -43,7 +43,22 @@ function getServerDb() {
 export async function sendPushToAll(message: PushMessage): Promise<SendResult> {
   const db = getServerDb();
 
-  // 1. Guardar siempre en Firebase RTDB push_broadcasts (difusión en tiempo real)
+  // 1. Guardar en Firebase RTDB announcements (para alimentar la campanita y buzón de todos)
+  try {
+    const announcementRef = rtdbPush(ref(db, "announcements"));
+    await set(announcementRef, {
+      title: message.title,
+      body: message.body,
+      image_url: message.image || null,
+      path: message.path || "/",
+      is_published: true,
+      created_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[Push] Error registrando en announcements:", err);
+  }
+
+  // 2. Guardar en Firebase RTDB push_broadcasts (difusión instantánea a clientes conectados)
   try {
     const broadcastRef = rtdbPush(ref(db, "push_broadcasts"));
     await set(broadcastRef, {

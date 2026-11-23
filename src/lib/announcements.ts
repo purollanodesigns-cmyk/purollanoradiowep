@@ -61,6 +61,50 @@ export async function fetchAnnouncements(limit = 20): Promise<Announcement[]> {
   }
 }
 
+function showNativePushNotification(
+  title: string,
+  body: string,
+  image?: string | null,
+  path?: string,
+) {
+  if (typeof window === "undefined" || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+
+  const targetPath = path || "/";
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.ready
+      .then((reg) => {
+        void reg.showNotification(title, {
+          body,
+          icon: "/purollano-logo.png",
+          badge: "/purollano-logo.png",
+          ...(image ? { image } : {}),
+          tag: `pll-${Date.now()}`,
+          renotify: true,
+          vibrate: [250, 100, 250, 100, 250],
+          data: { path: targetPath },
+          actions: [
+            { action: "listen", title: "▶ Escuchar en vivo" },
+            { action: "open", title: "Abrir radio" },
+          ],
+        });
+      })
+      .catch(() => {
+        try {
+          new Notification(title, { body, icon: "/purollano-logo.png" });
+        } catch {
+          /* ignorar */
+        }
+      });
+  } else {
+    try {
+      new Notification(title, { body, icon: "/purollano-logo.png" });
+    } catch {
+      /* ignorar */
+    }
+  }
+}
+
 /**
  * Trae los anuncios nuevos y los agrega al buzón local.
  * Devuelve cuántos avisos nuevos se añadieron.
@@ -80,19 +124,26 @@ export async function syncAnnouncements(): Promise<number> {
   const nuevos = list.filter((a) => !seen.includes(a.id));
   if (nuevos.length === 0) return 0;
 
-  if (!firstRun) {
-    // Del más antiguo al más nuevo para respetar el orden del buzón.
-    for (const a of [...nuevos].reverse()) {
-      addNotification({
-        title: a.title,
-        body: a.body,
-        path: a.path || "/",
-        sourceId: a.id,
-        ...(a.image_url ? { image: a.image_url } : {}),
-      });
+  // Si es la primera visita, cargamos los más recientes (hasta 5) en el buzón.
+  // Si no es la primera visita, cargamos todos los nuevos.
+  const aInsertar = firstRun ? nuevos.slice(0, 5) : nuevos;
+
+  // Del más antiguo al más nuevo para respetar el orden cronológico del buzón.
+  for (const a of [...aInsertar].reverse()) {
+    addNotification({
+      title: a.title,
+      body: a.body,
+      path: a.path || "/",
+      sourceId: a.id,
+      ...(a.image_url ? { image: a.image_url } : {}),
+    });
+
+    // Si no es primera visita (es un anuncio nuevo en tiempo real), disparar notificación nativa en el móvil
+    if (!firstRun) {
+      showNativePushNotification(a.title, a.body, a.image_url, a.path);
     }
   }
 
   saveSeen([...list.map((a) => a.id), ...seen]);
-  return firstRun ? 0 : nuevos.length;
+  return aInsertar.length;
 }

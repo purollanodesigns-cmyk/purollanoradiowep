@@ -182,6 +182,50 @@ export function PushSender() {
     }
   };
 
+  const testOnThisDevice = async () => {
+    if (typeof window === "undefined") return;
+    if (!("Notification" in window)) {
+      alert("Tu navegador no soporta notificaciones nativas.");
+      return;
+    }
+    if (Notification.permission !== "granted") {
+      const res = await Notification.requestPermission();
+      if (res !== "granted") {
+        alert("Debes permitir las notificaciones en el navegador para recibir avisos.");
+        return;
+      }
+    }
+
+    const testTitle = title.trim() || "Puro Llano Radio";
+    const testBody = body.trim() || "¡Prueba de notificación exitosa en tu dispositivo!";
+    const testImg = image.trim() || undefined;
+
+    try {
+      if ("serviceWorker" in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification(testTitle, {
+          body: testBody,
+          icon: "/purollano-logo.png",
+          badge: "/purollano-logo.png",
+          ...(testImg ? { image: testImg } : {}),
+          tag: "purollano-test",
+          renotify: true,
+          vibrate: [250, 100, 250, 100, 250],
+          data: { path: path || "/" },
+          actions: [
+            { action: "listen", title: "▶ Escuchar en vivo" },
+            { action: "open", title: "Abrir radio" },
+          ],
+        });
+      } else {
+        new Notification(testTitle, { body: testBody, icon: "/purollano-logo.png" });
+      }
+      setFeedbackMsg(true, "✅ Notificación de prueba disparada en este dispositivo.");
+    } catch {
+      setFeedbackMsg(false, "No se pudo disparar la notificación en este navegador.");
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-[var(--sabana)]/15 bg-white p-5">
       {/* Cabecera */}
@@ -401,15 +445,27 @@ export function PushSender() {
           </div>
         )}
 
-        {/* Botón enviar */}
-        <button
-          type="submit"
-          disabled={busy || body.trim().length < 3}
-          className="flex items-center gap-2 rounded-full bg-[var(--sabana)] px-6 py-2.5 text-sm font-semibold text-[var(--crema)] shadow-sm transition hover:bg-[var(--terracota)] disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          Enviar a {subs !== null ? `${subs} dispositivos` : "todos los dispositivos"}
-        </button>
+        {/* Botones de acción */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          <button
+            type="submit"
+            disabled={busy || body.trim().length < 3}
+            className="flex items-center gap-2 rounded-full bg-[var(--sabana)] px-6 py-2.5 text-sm font-semibold text-[var(--crema)] shadow-sm transition hover:bg-[var(--terracota)] disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Enviar a {subs !== null ? `${subs} dispositivos` : "todos los dispositivos"}
+          </button>
+
+          <button
+            type="button"
+            onClick={testOnThisDevice}
+            className="flex items-center gap-1.5 rounded-full border border-[var(--sabana)]/30 bg-[var(--crema)]/60 px-4 py-2 text-xs font-semibold text-[var(--sabana)] transition hover:bg-[var(--oro)]/20"
+            title="Prueba inmediata en este navegador o teléfono"
+          >
+            <Bell className="h-3.5 w-3.5 text-[var(--terracota)]" />
+            Probar en este móvil
+          </button>
+        </div>
       </form>
 
       {/* Historial de envíos recientes */}

@@ -146,8 +146,8 @@ export function NotificationsButton() {
         };
         if (!b || !b.title) return;
 
-        // Solo notificar si fue emitido recientemente (últimos 30 minutos)
-        if (b.created_at && Date.now() - b.created_at > 30 * 60 * 1000) return;
+        // Solo disparar popup nativo del sistema si fue emitido en las últimas 2 horas
+        const isRecent = !b.created_at || Date.now() - b.created_at < 2 * 60 * 60 * 1000;
 
         const seenKey = `pll_bcast_${snap.key}`;
         if (window.localStorage.getItem(seenKey)) return;
@@ -163,11 +163,22 @@ export function NotificationsButton() {
         });
 
         // 2. Disparar notificación nativa del sistema en móvil o PC si tiene permiso
-        if ("Notification" in window && Notification.permission === "granted") {
+        if (isRecent && "Notification" in window && Notification.permission === "granted") {
           const title = b.title;
           const body = b.body ?? "";
           const image = b.image || undefined;
           const path = b.path || "/";
+
+          // Enviar también mensaje al Service Worker activo
+          if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+              type: "SHOW_NOTIFICATION",
+              title,
+              body,
+              image,
+              path,
+            });
+          }
 
           if ("serviceWorker" in navigator) {
             navigator.serviceWorker.ready

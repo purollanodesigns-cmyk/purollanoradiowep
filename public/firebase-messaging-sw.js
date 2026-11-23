@@ -42,6 +42,61 @@ try {
   console.error("[FCM-SW] Error inicializando messaging:", e);
 }
 
+// Soporte adicional para eventos push directos del navegador
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  try {
+    const payload = event.data.json();
+    const notification = payload.notification || payload;
+    const title = notification.title || "Puro Llano Radio";
+    const body = notification.body || "";
+    const image = notification.image || payload.data?.image || undefined;
+    const path = payload.data?.path || payload.fcmOptions?.link || "/";
+
+    event.waitUntil(
+      self.registration.showNotification(title, {
+        body,
+        icon: "/purollano-logo.png",
+        badge: "/purollano-logo.png",
+        ...(image ? { image } : {}),
+        tag: "purollano-push-alert",
+        renotify: true,
+        vibrate: [250, 100, 250, 100, 250],
+        data: { path },
+        actions: [
+          { action: "listen", title: "▶ Escuchar en vivo" },
+          { action: "open", title: "Abrir radio" },
+        ],
+      }),
+    );
+  } catch (err) {
+    console.error("[FCM-SW] Error procesando evento push:", err);
+  }
+});
+
+// Mensajes enviados desde la pestaña cliente para mostrar notificación nativa
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SHOW_NOTIFICATION") {
+    const { title, body, image, path } = event.data;
+    event.waitUntil(
+      self.registration.showNotification(title || "Puro Llano Radio", {
+        body: body || "",
+        icon: "/purollano-logo.png",
+        badge: "/purollano-logo.png",
+        ...(image ? { image } : {}),
+        tag: `purollano-msg-${Date.now()}`,
+        renotify: true,
+        vibrate: [250, 100, 250, 100, 250],
+        data: { path: path || "/" },
+        actions: [
+          { action: "listen", title: "▶ Escuchar en vivo" },
+          { action: "open", title: "Abrir radio" },
+        ],
+      }),
+    );
+  }
+});
+
 // Clic en la notificación o en las acciones interactivas
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
