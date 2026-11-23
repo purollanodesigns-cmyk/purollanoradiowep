@@ -86,16 +86,26 @@ const requireFirebaseAdmin = createMiddleware({ type: "function" }).server(
 );
 
 const sendSchema = z.object({
-  title: z.string().min(2).max(80),
-  body: z.string().min(2).max(300),
+  title: z.string().min(2).max(120),
+  body: z.string().min(2).max(500),
   path: z.string().max(200).optional(),
-  image: z.string().max(800).optional(),
+  image: z.string().max(1200).optional(),
 });
+
+function parseInput(input: unknown) {
+  if (typeof input === "object" && input !== null) {
+    const obj = input as Record<string, unknown>;
+    if (obj["data"] && typeof obj["data"] === "object") {
+      return sendSchema.parse(obj["data"]);
+    }
+  }
+  return sendSchema.parse(input);
+}
 
 /** Envía un anuncio manual a todos los suscriptores (solo administradores). */
 export const sendAnnouncement = createServerFn({ method: "POST" })
   .middleware([requireFirebaseAdmin])
-  .validator((input: unknown) => sendSchema.parse(input))
+  .validator((input: unknown) => parseInput(input))
   .handler(async ({ data }) => {
     const { sendPushToAll } = await import("./push.server");
     return sendPushToAll({
